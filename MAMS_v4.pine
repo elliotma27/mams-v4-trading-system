@@ -1,0 +1,462 @@
+//@version=6
+indicator(title="MAMS-v4 Alerts", overlay=true)
+
+// ── MASTER SETTINGS ──────────────────────────────────────────────
+grpM = "🧠 Master Agent"
+i_longThresh  = input.float(75.0, "LONG Threshold %",  minval=50, maxval=100, step=1, group=grpM)
+i_shortThresh = input.float(86.0, "SHORT Threshold %", minval=50, maxval=100, step=1, group=grpM)
+i_minAgents   = input.int(13,     "Min Agents Agreeing", minval=1, maxval=18, group=grpM)
+i_requireMTF  = input.bool(true,  "Require Multi-TF Gate", group=grpM)
+i_longEn      = input.bool(true,  "Allow LONG",  group=grpM)
+i_shortEn     = input.bool(true,  "Allow SHORT", group=grpM)
+
+// ── WEIGHTS ──────────────────────────────────────────────────────
+grpW = "⚖️  Agent Weights"
+w01 = input.float(10.0, "A01 EMA/SMA Trend", minval=0, maxval=20, step=0.5, group=grpW)
+w02 = input.float(5.0,  "A02 Ichimoku",      minval=0, maxval=20, step=0.5, group=grpW)
+w03 = input.float(3.0,  "A03 Lin Reg",       minval=0, maxval=20, step=0.5, group=grpW)
+w04 = input.float(7.0,  "A04 RSI Multi",     minval=0, maxval=20, step=0.5, group=grpW)
+w05 = input.float(8.0,  "A05 MACD",          minval=0, maxval=20, step=0.5, group=grpW)
+w06 = input.float(8.0,  "A06 ADX/DMI",       minval=0, maxval=20, step=0.5, group=grpW)
+w07 = input.float(7.0,  "A07 Bollinger",     minval=0, maxval=20, step=0.5, group=grpW)
+w08 = input.float(6.0,  "A08 ATR/Keltner",   minval=0, maxval=20, step=0.5, group=grpW)
+w09 = input.float(4.0,  "A09 HV Z-Score",    minval=0, maxval=20, step=0.5, group=grpW)
+w10 = input.float(9.0,  "A10 OBV/AccDist",   minval=0, maxval=20, step=0.5, group=grpW)
+w11 = input.float(7.0,  "A11 VWAP/MFI",      minval=0, maxval=20, step=0.5, group=grpW)
+w12 = input.float(7.0,  "A12 Pressure",      minval=0, maxval=20, step=0.5, group=grpW)
+w13 = input.float(4.0,  "A13 Oscillators",   minval=0, maxval=20, step=0.5, group=grpW)
+w14 = input.float(6.0,  "A14 SAR/ST/DEMA",   minval=0, maxval=20, step=0.5, group=grpW)
+w15 = input.float(2.0,  "A15 Candles",       minval=0, maxval=20, step=0.5, group=grpW)
+w16 = input.float(5.0,  "A16 S/R Levels",    minval=0, maxval=20, step=0.5, group=grpW)
+w17 = input.float(6.0,  "A17 Price Action",  minval=0, maxval=20, step=0.5, group=grpW)
+w18 = input.float(12.0, "A18 Multi-TF GATE", minval=0, maxval=20, step=0.5, group=grpW)
+
+// ── AGENT 01: EMA/SMA ────────────────────────────────────────────
+a01_ema9   = ta.ema(close, 9)
+a01_ema21  = ta.ema(close, 21)
+a01_ema55  = ta.ema(close, 55)
+a01_ema200 = ta.ema(close, 200)
+a01_sma50  = ta.sma(close, 50)
+a01_sma200 = ta.sma(close, 200)
+a01_s1 = a01_ema9  > a01_ema21  ? 1 : a01_ema9  < a01_ema21  ? -1 : 0
+a01_s2 = a01_ema21 > a01_ema55  ? 1 : a01_ema21 < a01_ema55  ? -1 : 0
+a01_s3 = a01_ema55 > a01_ema200 ? 1 : a01_ema55 < a01_ema200 ? -1 : 0
+a01_s4 = close > a01_ema200 ? 1 : close < a01_ema200 ? -1 : 0
+a01_s5 = a01_sma50 > a01_sma200 ? 1 : a01_sma50 < a01_sma200 ? -1 : 0
+a01_s6 = close > a01_sma200 ? 1 : close < a01_sma200 ? -1 : 0
+a01_s7 = (a01_ema9 > a01_ema21 and a01_ema21 > a01_ema55 and a01_ema55 > a01_ema200) ? 1 : (a01_ema9 < a01_ema21 and a01_ema21 < a01_ema55 and a01_ema55 < a01_ema200) ? -1 : 0
+a01_s8 = a01_ema200 > a01_ema200[5] ? 1 : a01_ema200 < a01_ema200[5] ? -1 : 0
+a01_raw = (a01_s1 + a01_s2 + a01_s3 + a01_s4 + a01_s5 + a01_s6 + a01_s7 + a01_s8) / 8.0
+a01_sig = a01_raw >= 0.3 ? 1 : a01_raw <= -0.3 ? -1 : 0
+
+// ── AGENT 02: ICHIMOKU ───────────────────────────────────────────
+a02_tenkan  = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+a02_kijun   = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+a02_senkouA = (a02_tenkan + a02_kijun) / 2
+a02_senkouB = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+a02_cloudTop = math.max(a02_senkouA[26], a02_senkouB[26])
+a02_cloudBot = math.min(a02_senkouA[26], a02_senkouB[26])
+a02_chikou   = close[26]
+a02_s1 = a02_tenkan > a02_kijun ? 1 : a02_tenkan < a02_kijun ? -1 : 0
+a02_s2 = close > a02_cloudTop   ? 1 : close < a02_cloudBot   ? -1 : 0
+a02_s3 = a02_senkouA[26] > a02_senkouB[26] ? 1 : a02_senkouA[26] < a02_senkouB[26] ? -1 : 0
+a02_s4 = a02_chikou > high[26] ? 1 : a02_chikou < low[26] ? -1 : 0
+a02_s5 = close > a02_kijun  ? 1 : close < a02_kijun  ? -1 : 0
+a02_s6 = close > a02_tenkan ? 1 : close < a02_tenkan ? -1 : 0
+a02_raw = (a02_s1 + a02_s2 + a02_s3 + a02_s4 + a02_s5 + a02_s6) / 6.0
+a02_sig = a02_raw >= 0.3 ? 1 : a02_raw <= -0.3 ? -1 : 0
+
+// ── AGENT 03: LINEAR REGRESSION ──────────────────────────────────
+a03_lr    = ta.linreg(close, 50, 0)
+a03_lr1   = ta.linreg(close, 50, 1)
+a03_slope = a03_lr - a03_lr1
+a03_dev   = ta.stdev(close, 50)
+a03_upper = a03_lr + 2.0 * a03_dev
+a03_lower = a03_lr - 2.0 * a03_dev
+a03_slopeNorm = a03_slope / close * 100
+a03_s1 = a03_slope > 0 ? 1 : a03_slope < 0 ? -1 : 0
+a03_s2 = math.abs(a03_slopeNorm) > 0.05 ? a03_s1 : 0
+a03_s3 = close > a03_lr    ? 1 : close < a03_lr    ? -1 : 0
+a03_s4 = close > a03_upper ? -1 : close < a03_lower ? 1 : 0
+a03_s5 = a03_slope > a03_slope[3] and a03_slope > 0 ? 1 : a03_slope < a03_slope[3] and a03_slope < 0 ? -1 : 0
+a03_raw = (a03_s1 + a03_s2 + a03_s3 + a03_s4 + a03_s5) / 5.0
+a03_sig = a03_raw >= 0.3 ? 1 : a03_raw <= -0.3 ? -1 : 0
+
+// ── AGENT 04: RSI MULTI ──────────────────────────────────────────
+a04_rsi7     = ta.rsi(close, 7)
+a04_rsi14    = ta.rsi(close, 14)
+a04_rsi21    = ta.rsi(close, 21)
+a04_rsiMa    = ta.ema(a04_rsi14, 9)
+a04_rsiOfRsi = ta.rsi(a04_rsi14, 14)
+a04_s1 = a04_rsi7  > 50 ? 1 : a04_rsi7  < 50 ? -1 : 0
+a04_s2 = a04_rsi14 > 50 ? 1 : a04_rsi14 < 50 ? -1 : 0
+a04_s3 = a04_rsi21 > 50 ? 1 : a04_rsi21 < 50 ? -1 : 0
+a04_s4 = a04_rsi14 < 35 ? 1 : a04_rsi14 > 65 ? -1 : 0
+a04_s5 = a04_rsi14 > a04_rsiMa ? 1 : a04_rsi14 < a04_rsiMa ? -1 : 0
+a04_s6 = a04_rsiOfRsi > 50 ? 1 : a04_rsiOfRsi < 50 ? -1 : 0
+a04_s7 = a04_rsi14 > a04_rsi14[2] ? 1 : a04_rsi14 < a04_rsi14[2] ? -1 : 0
+a04_divBull = close < close[5] and a04_rsi14 > a04_rsi14[5] ? 1 : 0
+a04_divBear = close > close[5] and a04_rsi14 < a04_rsi14[5] ? -1 : 0
+a04_s8  = a04_divBull + a04_divBear
+a04_raw = (a04_s1 + a04_s2 + a04_s3 + a04_s4 + a04_s5 + a04_s6 + a04_s7 + a04_s8) / 8.0
+a04_sig = a04_raw >= 0.25 ? 1 : a04_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 05: MACD ───────────────────────────────────────────────
+[a05_macd, a05_signal, a05_hist] = ta.macd(close, 12, 26, 9)
+a05_s1 = a05_macd > a05_signal  ? 1 : a05_macd < a05_signal  ? -1 : 0
+a05_s2 = a05_macd > 0           ? 1 : a05_macd < 0           ? -1 : 0
+a05_s3 = a05_hist > 0           ? 1 : a05_hist < 0           ? -1 : 0
+a05_s4 = a05_hist > a05_hist[1] ? 1 : a05_hist < a05_hist[1] ? -1 : 0
+a05_histChg = a05_hist - a05_hist[1]
+a05_s5 = a05_histChg > 0 and a05_hist > 0 ? 1 : a05_histChg < 0 and a05_hist < 0 ? -1 : 0
+a05_s6 = a05_signal > a05_signal[1] ? 1 : a05_signal < a05_signal[1] ? -1 : 0
+a05_divBull = close < close[8] and a05_macd > a05_macd[8] ? 1 : 0
+a05_divBear = close > close[8] and a05_macd < a05_macd[8] ? -1 : 0
+a05_s7  = a05_divBull + a05_divBear
+a05_raw = (a05_s1 + a05_s2 + a05_s3 + a05_s4 + a05_s5 + a05_s6 + a05_s7) / 7.0
+a05_sig2 = a05_raw >= 0.25 ? 1 : a05_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 06: ADX/DMI ────────────────────────────────────────────
+[a06_diPlus, a06_diMinus, a06_adx] = ta.dmi(14, 14)
+a06_arUp  = 100 * (ta.highestbars(high, 26) + 25) / 25
+a06_arDn  = 100 * (ta.lowestbars(low,  26) + 25)  / 25
+a06_upSum = math.sum(math.max(close - close[1], 0), 14)
+a06_dnSum = math.sum(math.max(close[1] - close, 0), 14)
+a06_cmo   = (a06_upSum - a06_dnSum) / (a06_upSum + a06_dnSum + 0.0001) * 100
+a06_s1 = a06_adx >= 20 ? (a06_diPlus > a06_diMinus ? 1 : -1) : 0
+a06_s2 = a06_diPlus > a06_diMinus ? 1 : a06_diPlus < a06_diMinus ? -1 : 0
+a06_s3 = a06_adx > a06_adx[1] ? a06_s2 : 0
+a06_s4 = a06_arUp > a06_arDn ? 1 : a06_arUp < a06_arDn ? -1 : 0
+a06_s5 = a06_arUp > 70 ? 1 : a06_arDn > 70 ? -1 : 0
+a06_s6 = a06_cmo > 0 ? 1 : a06_cmo < 0 ? -1 : 0
+a06_s7 = math.abs(a06_cmo) > 30 ? a06_s6 : 0
+a06_raw = (a06_s1 + a06_s2 + a06_s3 + a06_s4 + a06_s5 + a06_s6 + a06_s7) / 7.0
+a06_sig = a06_raw >= 0.25 ? 1 : a06_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 07: BOLLINGER ──────────────────────────────────────────
+a07_basis = ta.sma(close, 20)
+a07_dev   = 2.0 * ta.stdev(close, 20)
+a07_upper = a07_basis + a07_dev
+a07_lower = a07_basis - a07_dev
+a07_pctB  = (close - a07_lower) / (a07_upper - a07_lower + 0.0001)
+a07_width = (a07_upper - a07_lower) / a07_basis
+a07_widMa = ta.sma(a07_width, 20)
+a07_walkBull = close > a07_upper and close[1] > a07_upper[1]
+a07_walkBear = close < a07_lower and close[1] < a07_lower[1]
+a07_atr  = ta.atr(14)
+a07_kcU  = a07_basis + 1.5 * a07_atr
+a07_kcL  = a07_basis - 1.5 * a07_atr
+a07_sqz  = a07_upper < a07_kcU and a07_lower > a07_kcL
+a07_sqzRelease = not a07_sqz and a07_sqz[1]
+a07_s1 = a07_pctB > 0.5  ? 1 : a07_pctB < 0.5  ? -1 : 0
+a07_s2 = a07_pctB > 0.8  ? -1 : a07_pctB < 0.2  ? 1 : 0
+a07_s3 = a07_walkBull ? 1 : a07_walkBear ? -1 : 0
+a07_s4 = a07_width > a07_widMa ? a07_s1 : 0
+a07_s5 = close > a07_basis ? 1 : close < a07_basis ? -1 : 0
+a07_s6 = a07_width > a07_width[1] and a07_width > a07_width[2] ? a07_s1 : 0
+a07_s7 = a07_sqzRelease ? (close > a07_basis ? 1 : -1) : 0
+a07_raw = (a07_s1 + a07_s2 + a07_s3 + a07_s4 + a07_s5 + a07_s6 + a07_s7) / 7.0
+a07_sig = a07_raw >= 0.25 ? 1 : a07_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 08: ATR/KELTNER ────────────────────────────────────────
+a08_atr    = ta.atr(14)
+a08_atrMa  = ta.sma(a08_atr, 20)
+a08_kcBase = ta.ema(close, 20)
+a08_kcUpp  = a08_kcBase + 2.0 * a08_atr
+a08_kcLow  = a08_kcBase - 2.0 * a08_atr
+a08_atrRatio = a08_atr / (a08_atrMa + 0.0001)
+a08_atrSlope = a08_atr - a08_atr[3]
+a08_s1 = close > a08_kcUpp  ? 1 : close < a08_kcLow  ? -1 : 0
+a08_s2 = close > a08_kcBase ? 1 : close < a08_kcBase ? -1 : 0
+a08_s3 = a08_atr > a08_atrMa ? (close > a08_kcBase ? 1 : -1) : 0
+a08_s4 = a08_atrRatio > 1.3 ? (close > a08_kcBase ? 1 : -1) : 0
+a08_s5 = a08_atrRatio < 0.7 ? 0 : a08_s2
+a08_s6 = a08_atrSlope > 0 ? (close > a08_kcBase ? 1 : -1) : 0
+a08_s7 = a08_kcBase > a08_kcBase[1] ? 1 : a08_kcBase < a08_kcBase[1] ? -1 : 0
+a08_raw = (a08_s1 + a08_s2 + a08_s3 + a08_s4 + a08_s5 + a08_s6 + a08_s7) / 7.0
+a08_sig = a08_raw >= 0.25 ? 1 : a08_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 09: HV Z-SCORE ─────────────────────────────────────────
+a09_ret    = math.log(close / close[1])
+a09_hvRaw  = ta.stdev(a09_ret, 20) * math.sqrt(252) * 100
+a09_hvMa   = ta.sma(a09_hvRaw, 50)
+a09_hvStd  = ta.stdev(a09_hvRaw, 50)
+a09_zScore = (a09_hvRaw - a09_hvMa) / (a09_hvStd + 0.0001)
+a09_nrng   = (high - low) / (ta.highest(high - low, 14) + 0.0001)
+a09_retMa  = ta.sma(a09_ret, 50)
+a09_retStd = ta.stdev(a09_ret, 50)
+a09_retZ   = (a09_ret - a09_retMa) / (a09_retStd + 0.0001)
+a09_s1 = a09_zScore < -1.0 ? (close > close[20] ? 1 : -1) : 0
+a09_s2 = a09_zScore > 1.5  ? (close > close[3] ? 1 : -1) : 0
+a09_s3 = a09_retZ > 1.5    ? 1 : a09_retZ < -1.5 ? -1 : 0
+a09_s4 = a09_nrng < 0.3    ? 0 : (close > open ? 1 : -1)
+a09_s5 = a09_hvRaw > a09_hvMa ? (close > a09_hvMa ? 1 : -1) : 0
+a09_s6 = close > close[1] and close[1] > close[2] and close[2] > close[3] ? 1 : close < close[1] and close[1] < close[2] and close[2] < close[3] ? -1 : 0
+a09_raw = (a09_s1 + a09_s2 + a09_s3 + a09_s4 + a09_s5 + a09_s6) / 6.0
+a09_sig = a09_raw >= 0.25 ? 1 : a09_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 10: OBV/ACCDIST ────────────────────────────────────────
+a10_obv    = ta.obv
+a10_obvMa  = ta.ema(a10_obv, 20)
+a10_mfm    = ((close - low) - (high - close)) / (high - low + 0.0001)
+a10_mfv    = a10_mfm * volume
+a10_adLine = ta.cum(a10_mfv)
+a10_adMa   = ta.ema(a10_adLine, 20)
+a10_cmf    = ta.sma(a10_mfv, 20) / (ta.sma(volume, 20) + 0.0001)
+a10_obvSlope = a10_obv - ta.sma(a10_obv, 5)
+a10_s1 = a10_obv > a10_obvMa       ? 1 : a10_obv < a10_obvMa       ? -1 : 0
+a10_s2 = a10_obvSlope > 0          ? 1 : a10_obvSlope < 0          ? -1 : 0
+a10_s3 = a10_adLine > a10_adMa     ? 1 : a10_adLine < a10_adMa     ? -1 : 0
+a10_s4 = a10_cmf > 0.05            ? 1 : a10_cmf < -0.05           ? -1 : 0
+a10_s5 = a10_adLine > a10_adLine[1] ? 1 : a10_adLine < a10_adLine[1] ? -1 : 0
+a10_divBull = close < close[5] and a10_obv > a10_obv[5] ? 1 : 0
+a10_divBear = close > close[5] and a10_obv < a10_obv[5] ? -1 : 0
+a10_s6  = a10_divBull + a10_divBear
+a10_s7  = math.abs(a10_cmf) > 0.15 ? a10_s4 : 0
+a10_raw = (a10_s1 + a10_s2 + a10_s3 + a10_s4 + a10_s5 + a10_s6 + a10_s7) / 7.0
+a10_sig = a10_raw >= 0.25 ? 1 : a10_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 11: VWAP/MFI ───────────────────────────────────────────
+a11_vwap    = ta.vwap(hlc3)
+a11_mfi     = ta.mfi(hlc3, 14)
+a11_volMa   = ta.sma(volume, 20)
+a11_rvol    = volume / (a11_volMa + 0.0001)
+a11_vwapDev = ta.stdev(close, 20)
+a11_vwapUp  = a11_vwap + 1.0 * a11_vwapDev
+a11_vwapDn  = a11_vwap - 1.0 * a11_vwapDev
+a11_s1 = close > a11_vwap    ? 1 : close < a11_vwap    ? -1 : 0
+a11_s2 = close > a11_vwapUp  ? 1 : close < a11_vwapDn  ? -1 : 0
+a11_s3 = a11_mfi < 20 ? 1 : a11_mfi > 80 ? -1 : 0
+a11_s4 = a11_mfi > 50 ? 1 : a11_mfi < 50 ? -1 : 0
+a11_s5 = a11_rvol > 1.5 and close > close[1] ? 1 : a11_rvol > 1.5 and close < close[1] ? -1 : 0
+a11_s6 = a11_mfi > a11_mfi[1] ? 1 : a11_mfi < a11_mfi[1] ? -1 : 0
+a11_s7 = close > a11_vwap and close[1] < a11_vwap[1] ? 1 : close < a11_vwap and close[1] > a11_vwap[1] ? -1 : 0
+a11_raw = (a11_s1 + a11_s2 + a11_s3 + a11_s4 + a11_s5 + a11_s6 + a11_s7) / 7.0
+a11_sig = a11_raw >= 0.25 ? 1 : a11_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 12: PRESSURE ───────────────────────────────────────────
+a12_clv      = ((close - low) - (high - close)) / (high - low + 0.0001)
+a12_clvMa    = ta.ema(a12_clv, 14)
+a12_fiEma    = ta.ema((close - close[1]) * volume, 13)
+a12_buyPress  = high - math.min(close[1], open)
+a12_sellPress = math.max(close[1], open) - low
+a12_pressRatio = a12_buyPress / (a12_buyPress + a12_sellPress + 0.0001)
+a12_pressMa   = ta.sma(a12_pressRatio, 14)
+a12_efiMa     = ta.ema((close - close[1]) * volume, 13)
+a12_volSma    = ta.sma(volume, 20)
+a12_s1 = a12_clv > 0           ? 1 : a12_clv < 0           ? -1 : 0
+a12_s2 = a12_clvMa > 0         ? 1 : a12_clvMa < 0         ? -1 : 0
+a12_s3 = a12_fiEma > 0         ? 1 : a12_fiEma < 0         ? -1 : 0
+a12_s4 = a12_pressRatio > 0.6  ? 1 : a12_pressRatio < 0.4  ? -1 : 0
+a12_s5 = a12_pressMa > 0.5     ? 1 : a12_pressMa < 0.5     ? -1 : 0
+a12_s6 = a12_efiMa > 0         ? 1 : a12_efiMa < 0         ? -1 : 0
+a12_s7 = volume > a12_volSma * 2.0 and a12_clv > 0.6 ? 1 : volume > a12_volSma * 2.0 and a12_clv < -0.6 ? -1 : 0
+a12_raw = (a12_s1 + a12_s2 + a12_s3 + a12_s4 + a12_s5 + a12_s6 + a12_s7) / 7.0
+a12_sig = a12_raw >= 0.25 ? 1 : a12_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 13: OSCILLATORS ────────────────────────────────────────
+a13_rsiBase  = ta.rsi(close, 14)
+a13_stRsiRaw = ta.stoch(a13_rsiBase, a13_rsiBase, a13_rsiBase, 14)
+a13_stRsiK   = ta.sma(a13_stRsiRaw, 3)
+a13_stRsiD   = ta.sma(a13_stRsiK,   3)
+a13_cci = ta.cci(hlc3, 20)
+a13_wr  = ta.wpr(14)
+a13_bp1 = close - math.min(low, close[1])
+a13_tr1 = math.max(high, close[1]) - math.min(low, close[1])
+a13_uo  = 100 * (4 * math.sum(a13_bp1, 7) / (math.sum(a13_tr1, 7) + 0.0001) + 2 * math.sum(a13_bp1, 14) / (math.sum(a13_tr1, 14) + 0.0001) + 1 * math.sum(a13_bp1, 28) / (math.sum(a13_tr1, 28) + 0.0001)) / 7
+a13_s1 = a13_stRsiK < 20 and a13_stRsiK > a13_stRsiD ? 1 : a13_stRsiK > 80 and a13_stRsiK < a13_stRsiD ? -1 : 0
+a13_s2 = a13_stRsiK > a13_stRsiD ? 1 : a13_stRsiK < a13_stRsiD ? -1 : 0
+a13_s3 = a13_cci < -100 ? 1 : a13_cci > 100 ? -1 : 0
+a13_s4 = a13_cci > 0    ? 1 : a13_cci < 0   ? -1 : 0
+a13_s5 = a13_wr < -80   ? 1 : a13_wr > -20  ? -1 : 0
+a13_s6 = a13_uo < 30    ? 1 : a13_uo > 70   ? -1 : 0
+a13_s7 = a13_uo > 50    ? 1 : a13_uo < 50   ? -1 : 0
+a13_raw = (a13_s1 + a13_s2 + a13_s3 + a13_s4 + a13_s5 + a13_s6 + a13_s7) / 7.0
+a13_sig = a13_raw >= 0.25 ? 1 : a13_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 14: SAR/ST/DEMA ────────────────────────────────────────
+a14_sar  = ta.sar(0.02, 0.02, 0.2)
+[a14_st, a14_stDir] = ta.supertrend(3.0, 10)
+a14_e1   = ta.ema(close, 21)
+a14_e2   = ta.ema(a14_e1, 21)
+a14_dema = 2 * a14_e1 - a14_e2
+a14_t1   = ta.ema(close, 21)
+a14_t2   = ta.ema(a14_t1, 21)
+a14_t3   = ta.ema(a14_t2, 21)
+a14_tema = 3 * a14_t1 - 3 * a14_t2 + a14_t3
+a14_s1 = close > a14_sar  ? 1 : close < a14_sar  ? -1 : 0
+a14_s2 = a14_stDir == -1  ? 1 : a14_stDir == 1   ? -1 : 0
+a14_s3 = close > a14_dema ? 1 : close < a14_dema ? -1 : 0
+a14_s4 = close > a14_tema ? 1 : close < a14_tema ? -1 : 0
+a14_s5 = a14_dema > a14_dema[1] ? 1 : a14_dema < a14_dema[1] ? -1 : 0
+a14_s6 = a14_tema > a14_tema[1] ? 1 : a14_tema < a14_tema[1] ? -1 : 0
+a14_s7 = close > a14_sar and close[1] < a14_sar[1] ? 1 : close < a14_sar and close[1] > a14_sar[1] ? -1 : 0
+a14_raw = (a14_s1 + a14_s2 + a14_s3 + a14_s4 + a14_s5 + a14_s6 + a14_s7) / 7.0
+a14_sig = a14_raw >= 0.25 ? 1 : a14_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 15: CANDLES ────────────────────────────────────────────
+a15_bodySize  = math.abs(close - open)
+a15_rangeSize = high - low + 0.0001
+a15_bodyPct   = a15_bodySize / a15_rangeSize
+a15_upperWick = high - math.max(open, close)
+a15_lowerWick = math.min(open, close) - low
+a15_bullBar   = close > open
+a15_bearBar   = close < open
+a15_doji      = a15_bodyPct < 0.05
+a15_bullEngulf = a15_bullBar and not a15_bullBar[1] and close > open[1] and open < close[1] and a15_bodySize > a15_bodySize[1]
+a15_bearEngulf = a15_bearBar and not a15_bearBar[1] and close < open[1] and open > close[1] and a15_bodySize > a15_bodySize[1]
+a15_hammer    = a15_lowerWick > a15_bodySize * 2 and a15_upperWick < a15_bodySize * 0.5 and a15_bodySize > 0
+a15_shootStar = a15_upperWick > a15_bodySize * 2 and a15_lowerWick < a15_bodySize * 0.5 and a15_bodySize > 0
+a15_bullMaru  = a15_bullBar and a15_upperWick < a15_rangeSize * 0.05 and a15_lowerWick < a15_rangeSize * 0.05
+a15_bearMaru  = a15_bearBar and a15_upperWick < a15_rangeSize * 0.05 and a15_lowerWick < a15_rangeSize * 0.05
+a15_bullHarami = not a15_bullBar[1] and a15_bullBar and high < high[1] and low > low[1]
+a15_bearHarami = not a15_bearBar[1] and a15_bearBar and high < high[1] and low > low[1]
+a15_mornStar  = not a15_bullBar[2] and a15_doji[1] and a15_bullBar and close > (open[2] + close[2]) / 2
+a15_evenStar  = not a15_bearBar[2] and a15_doji[1] and a15_bearBar and close < (open[2] + close[2]) / 2
+a15_bullScore = (a15_bullEngulf ? 2 : 0) + (a15_hammer ? 1 : 0) + (a15_bullMaru ? 1 : 0) + (a15_bullHarami ? 1 : 0) + (a15_mornStar ? 2 : 0)
+a15_bearScore = (a15_bearEngulf ? 2 : 0) + (a15_shootStar ? 1 : 0) + (a15_bearMaru ? 1 : 0) + (a15_bearHarami ? 1 : 0) + (a15_evenStar ? 2 : 0)
+a15_raw = (a15_bullScore - a15_bearScore) / 7.0
+a15_sig = a15_raw >= 0.2 ? 1 : a15_raw <= -0.2 ? -1 : 0
+
+// ── AGENT 16: S/R LEVELS ─────────────────────────────────────────
+a16_dcH  = ta.highest(high, 20)
+a16_dcL2 = ta.lowest(low,   20)
+a16_dcM  = (a16_dcH + a16_dcL2) / 2
+a16_pp   = (high[1] + low[1] + close[1]) / 3
+a16_r1   = 2 * a16_pp - low[1]
+a16_s1pp = 2 * a16_pp - high[1]
+a16_r2   = a16_pp + (high[1] - low[1])
+a16_s2   = a16_pp - (high[1] - low[1])
+a16_ph   = ta.pivothigh(high, 5, 5)
+a16_pl   = ta.pivotlow(low,   5, 5)
+var float a16_lastPH = na
+var float a16_lastPL = na
+if not na(a16_ph)
+    a16_lastPH := a16_ph
+if not na(a16_pl)
+    a16_lastPL := a16_pl
+a16_s1sig = close > a16_dcM    ? 1 : close < a16_dcM    ? -1 : 0
+a16_s2sig = close > a16_dcH[1] ? 1 : close < a16_dcL2[1] ? -1 : 0
+a16_s3sig = close > a16_pp     ? 1 : close < a16_pp     ? -1 : 0
+a16_s4sig = close > a16_r1     ? 1 : close < a16_s1pp   ? -1 : 0
+a16_s5sig = not na(a16_lastPH) and not na(a16_lastPL) ? (close > a16_lastPH ? 1 : close < a16_lastPL ? -1 : 0) : 0
+a16_s6sig = close > a16_r2     ? 1 : close < a16_s2     ? -1 : 0
+a16_pvRange = a16_r1 - a16_s1pp + 0.0001
+a16_s7sig = (close - a16_pp) / a16_pvRange > 0.5 ? 1 : (close - a16_pp) / a16_pvRange < -0.5 ? -1 : 0
+a16_raw = (a16_s1sig + a16_s2sig + a16_s3sig + a16_s4sig + a16_s5sig + a16_s6sig + a16_s7sig) / 7.0
+a16_sig = a16_raw >= 0.3 ? 1 : a16_raw <= -0.3 ? -1 : 0
+
+// ── AGENT 17: PRICE ACTION ───────────────────────────────────────
+a17_roc   = ta.roc(close, 12)
+a17_mom   = ta.mom(close, 10)
+a17_momMa = ta.ema(a17_mom, 5)
+a17_hh    = high > ta.highest(high, 10)[1]
+a17_ll    = low  < ta.lowest(low,   10)[1]
+a17_upBars   = math.sum(close > close[1] ? 1 : 0, 10)
+a17_dnBars   = math.sum(close < close[1] ? 1 : 0, 10)
+a17_consist  = (a17_upBars - a17_dnBars) / 10.0
+a17_expansion = (high - low) > ta.sma(high - low, 20) * 1.2
+a17_closePos  = (close - low) / (high - low + 0.0001)
+a17_s1 = a17_roc > 1.0 ? 1 : a17_roc < -1.0 ? -1 : 0
+a17_s2 = a17_mom > 0 ? 1 : a17_mom < 0 ? -1 : 0
+a17_s3 = a17_momMa > 0 ? 1 : a17_momMa < 0 ? -1 : 0
+a17_s4 = a17_hh ? 1 : a17_ll ? -1 : 0
+a17_s5 = a17_consist > 0.3 ? 1 : a17_consist < -0.3 ? -1 : 0
+a17_s6 = a17_expansion ? (close > close[1] ? 1 : -1) : 0
+a17_s7 = a17_closePos > 0.6 ? 1 : a17_closePos < 0.4 ? -1 : 0
+a17_raw = (a17_s1 + a17_s2 + a17_s3 + a17_s4 + a17_s5 + a17_s6 + a17_s7) / 7.0
+a17_sig = a17_raw >= 0.25 ? 1 : a17_raw <= -0.25 ? -1 : 0
+
+// ── AGENT 18: MULTI-TF ───────────────────────────────────────────
+a18_htf1_emaF  = request.security(syminfo.tickerid, "60",  ta.ema(close, 21), lookahead=barmerge.lookahead_off)
+a18_htf1_emaS  = request.security(syminfo.tickerid, "60",  ta.ema(close, 55), lookahead=barmerge.lookahead_off)
+a18_htf1_close = request.security(syminfo.tickerid, "60",  close, lookahead=barmerge.lookahead_off)
+a18_htf1_rsi   = request.security(syminfo.tickerid, "60",  ta.rsi(close, 14), lookahead=barmerge.lookahead_off)
+a18_htf2_emaF  = request.security(syminfo.tickerid, "240", ta.ema(close, 21), lookahead=barmerge.lookahead_off)
+a18_htf2_emaS  = request.security(syminfo.tickerid, "240", ta.ema(close, 55), lookahead=barmerge.lookahead_off)
+a18_htf2_close = request.security(syminfo.tickerid, "240", close, lookahead=barmerge.lookahead_off)
+a18_htf2_rsi   = request.security(syminfo.tickerid, "240", ta.rsi(close, 14), lookahead=barmerge.lookahead_off)
+a18_htf3_emaF  = request.security(syminfo.tickerid, "D",   ta.ema(close, 21), lookahead=barmerge.lookahead_off)
+a18_htf3_emaS  = request.security(syminfo.tickerid, "D",   ta.ema(close, 55), lookahead=barmerge.lookahead_off)
+a18_htf3_close = request.security(syminfo.tickerid, "D",   close, lookahead=barmerge.lookahead_off)
+a18_htf3_rsi   = request.security(syminfo.tickerid, "D",   ta.rsi(close, 14), lookahead=barmerge.lookahead_off)
+a18_s1  = a18_htf1_emaF > a18_htf1_emaS  ? 1 : a18_htf1_emaF < a18_htf1_emaS  ? -1 : 0
+a18_s2  = a18_htf1_close > a18_htf1_emaS ? 1 : a18_htf1_close < a18_htf1_emaS ? -1 : 0
+a18_s3  = a18_htf1_rsi > 50 ? 1 : a18_htf1_rsi < 50 ? -1 : 0
+a18_s4  = a18_htf2_emaF > a18_htf2_emaS  ? 1 : a18_htf2_emaF < a18_htf2_emaS  ? -1 : 0
+a18_s5  = a18_htf2_close > a18_htf2_emaS ? 1 : a18_htf2_close < a18_htf2_emaS ? -1 : 0
+a18_s6  = a18_htf2_rsi > 50 ? 1 : a18_htf2_rsi < 50 ? -1 : 0
+a18_s7  = a18_htf3_emaF > a18_htf3_emaS  ? 1 : a18_htf3_emaF < a18_htf3_emaS  ? -1 : 0
+a18_s8  = a18_htf3_close > a18_htf3_emaS ? 1 : a18_htf3_close < a18_htf3_emaS ? -1 : 0
+a18_s9  = a18_htf3_rsi > 50 ? 1 : a18_htf3_rsi < 50 ? -1 : 0
+a18_allBull = a18_s1 == 1  and a18_s4 == 1  and a18_s7 == 1
+a18_allBear = a18_s1 == -1 and a18_s4 == -1 and a18_s7 == -1
+a18_s10 = a18_allBull ? 1 : a18_allBear ? -1 : 0
+a18_raw = (a18_s1 + a18_s2 + a18_s3 + a18_s4 + a18_s5 + a18_s6 + a18_s7 + a18_s8 + a18_s9 + a18_s10) / 10.0
+a18_sig = a18_raw >= 0.3 ? 1 : a18_raw <= -0.3 ? -1 : 0
+
+// ── REGIME ───────────────────────────────────────────────────────
+[r_diP, r_diM, r_adx] = ta.dmi(14, 14)
+r_atr    = ta.atr(14)
+r_atrMa  = ta.sma(r_atr, 20)
+r_ema200 = ta.ema(close, 200)
+r_ema200Slope = r_ema200 - r_ema200[10]
+d_ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),  lookahead=barmerge.lookahead_off)
+d_ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+d_close  = request.security(syminfo.tickerid, "D", close,              lookahead=barmerge.lookahead_off)
+isBull = close > r_ema200 and r_ema200Slope > 0 and d_close > d_ema200 and d_ema50 > d_ema200
+isBear = close < r_ema200 and r_ema200Slope < 0 and d_close < d_ema200
+isChop = r_adx < 25 or (math.abs(close - r_ema200) / r_ema200 * 100 < 1.5 and r_adx < 25)
+hasVolatility = r_atr > r_atrMa * 0.85
+chopGate = not isChop
+volGate  = hasVolatility
+regimeLongOk  = not isBear
+regimeShortOk = not isBull
+
+// ── MASTER SCORE ─────────────────────────────────────────────────
+totalW = w01+w02+w03+w04+w05+w06+w07+w08+w09+w10+w11+w12+w13+w14+w15+w16+w17+w18
+allSigs = array.from(float(a01_sig),float(a02_sig),float(a03_sig),float(a04_sig),float(a05_sig2),float(a06_sig),float(a07_sig),float(a08_sig),float(a09_sig),float(a10_sig),float(a11_sig),float(a12_sig),float(a13_sig),float(a14_sig),float(a15_sig),float(a16_sig),float(a17_sig),float(a18_sig))
+allWts  = array.from(w01,w02,w03,w04,w05,w06,w07,w08,w09,w10,w11,w12,w13,w14,w15,w16,w17,w18)
+mBullScore = 0.0
+mBearScore = 0.0
+bullCount  = 0
+bearCount  = 0
+for i = 0 to 17
+    sig = array.get(allSigs, i)
+    wt  = array.get(allWts,  i)
+    if sig == 1
+        mBullScore += wt
+        bullCount  += 1
+    else if sig == -1
+        mBearScore += wt
+        bearCount  += 1
+mBullPct = totalW > 0 ? (mBullScore / totalW) * 100 : 0.0
+mBearPct = totalW > 0 ? (mBearScore / totalW) * 100 : 0.0
+mtfBullGate   = not i_requireMTF or a18_sig == 1
+mtfBearGate   = not i_requireMTF or a18_sig == -1
+countBullGate = bullCount >= i_minAgents
+countBearGate = bearCount >= i_minAgents
+daily200      = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead=barmerge.lookahead_off)
+noShortVs200  = close > daily200 * 0.98
+regimeLongThresh  = isBull ? i_longThresh  - 4 : i_longThresh
+regimeShortThresh = isBear ? i_shortThresh - 4 : i_shortThresh
+masterBull = mBullPct >= regimeLongThresh  and mBullPct > mBearPct and mtfBullGate and countBullGate and chopGate and volGate and regimeLongOk
+masterBear = mBearPct >= regimeShortThresh and mBearPct > mBullPct and mtfBearGate and countBearGate and not noShortVs200 and chopGate and volGate and regimeShortOk
+
+// ── SIGNALS ──────────────────────────────────────────────────────
+longOK   = masterBull and i_longEn
+shortOK  = masterBear and i_shortEn
+exitLong  = longOK[1] and not longOK
+exitShort = shortOK[1] and not shortOK
+
+// ── PLOTS ────────────────────────────────────────────────────────
+plotshape(longOK,  title="LONG",  location=location.belowbar, style=shape.triangleup,   color=color.new(color.lime,0), size=size.normal, text="LONG")
+plotshape(shortOK, title="SHORT", location=location.abovebar, style=shape.triangledown, color=color.new(color.red, 0), size=size.normal, text="SHORT")
+plotshape(exitLong,  title="ExitL", location=location.abovebar, style=shape.xcross, color=color.new(color.orange,0), size=size.small)
+plotshape(exitShort, title="ExitS", location=location.belowbar, style=shape.xcross, color=color.new(color.orange,0), size=size.small)
+
+// ── ALERT CONDITIONS ─────────────────────────────────────────────
+alertcondition(longOK,   title="Long Entry",   message='{"action": "long", "symbol": "ETH/USD", "size": 0.002}')
+alertcondition(shortOK,  title="Short Entry",  message='{"action": "short", "symbol": "ETH/USD", "size": 0.002}')
+alertcondition(exitLong,  title="Close Long",  message='{"action": "close", "symbol": "ETH/USD", "size": 0.002}')
+alertcondition(exitShort, title="Close Short", message='{"action": "close", "symbol": "ETH/USD", "size": 0.002}')
